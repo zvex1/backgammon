@@ -32,7 +32,11 @@ button:disabled{opacity:.3;pointer-events:none;}
        backdrop-filter:blur(3px);}
 .modal-box{background:#1a1008;border:2px solid #5a3d18;border-radius:6px;
            padding:32px 40px;max-width:420px;text-align:center;
-           box-shadow:0 0 60px rgba(212,175,55,0.3);}
+           box-shadow:0 0 60px rgba(212,175,55,0.3);position:relative;}
+.modal-close{position:absolute;top:8px;right:12px;background:none;border:none;
+             color:#d4af37;font-size:20px;cursor:pointer;opacity:0.6;padding:4px 8px;
+             margin:0;letter-spacing:0;}
+.modal-close:hover,.modal-close:active{opacity:1;background:none;}
 .modal-box h2{font-size:18px;letter-spacing:6px;text-transform:uppercase;
              color:#d4af37;margin-bottom:24px;font-weight:normal;}
 .modal-box button{margin:8px 6px;padding:14px 24px;font-size:12px;}
@@ -138,10 +142,15 @@ function sp(pt,c,n){G.pts[pt-1]={n,c};}
 function gp(pt){return G.pts[pt-1];}
 
 // ── Modal UI ───────────────────────────────────────────────────────
+function modalCloseBtn(){
+  return G ? '<button class="modal-close" onclick="hideModal()">&#x2715;</button>' : '';
+}
+
 function showModeSelection(){
   const modal = document.getElementById('modal');
   const content = document.getElementById('modal-content');
   content.innerHTML = `
+    ${modalCloseBtn()}
     <h2>New Game</h2>
     <div class="modal-row">
       <button onclick="showDifficultySelection()">vs Computer</button>
@@ -154,6 +163,7 @@ function showModeSelection(){
 function showDifficultySelection(){
   const content = document.getElementById('modal-content');
   content.innerHTML = `
+    ${modalCloseBtn()}
     <h2>Game Settings</h2>
     <div style="margin:16px 0;font-size:11px;letter-spacing:1px;opacity:0.8;">DIFFICULTY</div>
     <div class="modal-row">
@@ -167,6 +177,7 @@ function showDifficultySelection(){
 function showColorSelection(difficulty){
   const content = document.getElementById('modal-content');
   content.innerHTML = `
+    ${modalCloseBtn()}
     <h2>Choose Your Side</h2>
     <div class="modal-row">
       <button onclick="finalizeGame('${difficulty}','white')">Play as White</button>
@@ -817,7 +828,7 @@ function rollDice(_internal){
   if(!_internal && AI.enabled && G.player === AI.color) return;
 
   const a=r6(),b=r6();
-  G.dice=[a,b];
+  G.dice=a===b?[a,a,a,a]:[a,b];
   G.movesLeft=a===b?[a,a,a,a]:[a,b];
   G.phase='move';
   G.sel=null; G.hints=[];
@@ -834,7 +845,7 @@ function rollDice(_internal){
   draw();
 }
 function r6(){return Math.floor(Math.random()*6)+1;}
-function diceStr(){return G.dice.join(' & ');}
+function diceStr(){return G.dice.length===4?G.dice[0]+' & '+G.dice[1]+' (doubles!)':G.dice.join(' & ');}
 
 function endTurn(){
   G.sel=null; G.hints=[];
