@@ -26,6 +26,20 @@ button{background:transparent;color:#d4af37;border:1px solid #5a3d18;
        transition:background .12s,color .12s;}
 button:active,button:focus{outline:none;background:#d4af37;color:#0d0800;}
 button:disabled{opacity:.3;pointer-events:none;}
+#modal{position:fixed;top:0;left:0;width:100vw;height:100vh;
+       background:rgba(13,8,0,0.97);z-index:1000;
+       display:flex;align-items:center;justify-content:center;
+       backdrop-filter:blur(3px);}
+.modal-box{background:#1a1008;border:2px solid #5a3d18;border-radius:6px;
+           padding:32px 40px;max-width:420px;text-align:center;
+           box-shadow:0 0 60px rgba(212,175,55,0.3);}
+.modal-box h2{font-size:18px;letter-spacing:6px;text-transform:uppercase;
+             color:#d4af37;margin-bottom:24px;font-weight:normal;}
+.modal-box button{margin:8px 6px;padding:14px 24px;font-size:12px;}
+.modal-row{display:flex;gap:10px;justify-content:center;flex-wrap:wrap;margin-top:16px;}
+#cube-display{position:absolute;top:18px;right:18px;background:#1a1008;
+              border:2px solid #5a3d18;border-radius:4px;padding:6px 12px;
+              font-size:12px;letter-spacing:1px;color:#d4af37;}
 </style>
 </head>
 <body>
@@ -36,7 +50,12 @@ button:disabled{opacity:.3;pointer-events:none;}
   <button id="rollBtn"  onclick="rollDice()" disabled>Roll</button>
   <button id="undoBtn"  onclick="undoTurn()"  disabled>Undo Turn</button>
   <button id="passBtn"  onclick="endTurn()"   disabled>End Turn</button>
+  <button id="doubleBtn" onclick="offerDouble()" disabled>Double</button>
   <button onclick="newGame()">New Game</button>
+</div>
+<div id="cube-display" style="display:none;"></div>
+<div id="modal" style="display:none;">
+  <div class="modal-box" id="modal-content"></div>
 </div>
 <script>
 // ── Layout ─────────────────────────────────────────────────────────
@@ -64,6 +83,8 @@ const COL={
 // ── State ──────────────────────────────────────────────────────────
 let G;      // live game state
 let SNAP;   // snapshot taken just after rolling (for undo)
+let AI = { enabled: false, color: 'black', difficulty: 'medium' };
+let CUBE = { value: 1, owner: null, offered: false };
 
 function cloneState(s){
   return {
@@ -80,6 +101,10 @@ function cloneState(s){
 }
 
 function newGame(){
+  showModeSelection();
+}
+
+function startGame(mode, difficulty, playerColor){
   G={
     pts:Array(24).fill(0).map(()=>({n:0,c:null})),
     bar:{white:0,black:0},
@@ -91,12 +116,75 @@ function newGame(){
   SNAP=null;
   sp(1,'black',2); sp(6,'white',5); sp(8,'white',3);  sp(12,'black',5);
   sp(13,'white',5);sp(17,'black',3);sp(19,'black',5); sp(24,'white',2);
+
+  CUBE = { value: 1, owner: null, offered: false };
+
+  if(mode === 'ai'){
+    AI.enabled = true;
+    AI.difficulty = difficulty;
+    AI.color = playerColor;
+  } else {
+    AI.enabled = false;
+  }
+
   syncBtns();
+  updateCubeDisplay();
   msg("White's turn — Roll the dice");
   draw();
+
+  setTimeout(checkAITurn, 500);
 }
 function sp(pt,c,n){G.pts[pt-1]={n,c};}
 function gp(pt){return G.pts[pt-1];}
+
+// ── Modal UI ───────────────────────────────────────────────────────
+function showModeSelection(){
+  const modal = document.getElementById('modal');
+  const content = document.getElementById('modal-content');
+  content.innerHTML = `
+    <h2>New Game</h2>
+    <div class="modal-row">
+      <button onclick="showDifficultySelection()">vs Computer</button>
+      <button onclick="hideModal();startGame('human',null,null);">Two Player</button>
+    </div>
+  `;
+  modal.style.display = 'flex';
+}
+
+function showDifficultySelection(){
+  const content = document.getElementById('modal-content');
+  content.innerHTML = `
+    <h2>Game Settings</h2>
+    <div style="margin:16px 0;font-size:11px;letter-spacing:1px;opacity:0.8;">DIFFICULTY</div>
+    <div class="modal-row">
+      <button onclick="showColorSelection('easy')">Easy</button>
+      <button onclick="showColorSelection('medium')">Medium</button>
+      <button onclick="showColorSelection('hard')">Hard</button>
+    </div>
+  `;
+}
+
+function showColorSelection(difficulty){
+  const content = document.getElementById('modal-content');
+  content.innerHTML = `
+    <h2>Choose Your Side</h2>
+    <div class="modal-row">
+      <button onclick="finalizeGame('${difficulty}','white')">Play as White</button>
+      <button onclick="finalizeGame('${difficulty}','black')">Play as Black</button>
+      <button onclick="finalizeGame('${difficulty}',Math.random()<0.5?'white':'black')">Random</button>
+    </div>
+  `;
+}
+
+function finalizeGame(difficulty, humanColor){
+  const aiColor = humanColor === 'white' ? 'black' : 'white';
+  hideModal();
+  startGame('ai', difficulty, aiColor);
+}
+
+function hideModal(){
+  document.getElementById('modal').style.display = 'none';
+}
 
 // ── Coordinates ────────────────────────────────────────────────────
 function ptX(pt){
@@ -208,9 +296,526 @@ function applyMove(mv){
   G.movesLeft.splice(i,1);
 }
 
+// ── AI Move Generation ────────────────────────────────────────────
+function applyMoveToState(state, move, color){
+  const opp = color === 'white' ? 'black' : 'white';
+  const newState = cloneState(state);
+
+  // Remove from source
+  if(move.from === 'bar'){
+    newState.bar[color]--;
+  } else {
+    newState.pts[move.from-1].n--;
+    if(newState.pts[move.from-1].n === 0) newState.pts[move.from-1].c = null;
+  }
+
+  // Place on destination
+  if(move.to === 0){
+    newState.off[color]++;
+  } else {
+    const d = newState.pts[move.to-1];
+    if(d.c === opp && d.n === 1){
+      d.n = 0; d.c = null; newState.bar[opp]++;
+    }
+    d.n++; d.c = color;
+  }
+
+  // Consume die
+  const i = newState.movesLeft.indexOf(move.die);
+  newState.movesLeft.splice(i, 1);
+
+  return newState;
+}
+
+function getAllLegalMovesFromState(state, color){
+  const moves = [];
+
+  // Check bar first
+  if(state.bar[color] > 0){
+    const barMoves = legalFromState(state, 'bar', color);
+    return barMoves;
+  }
+
+  // Check all points
+  for(let pt = 1; pt <= 24; pt++){
+    const p = state.pts[pt-1];
+    if(p.c === color && p.n > 0){
+      moves.push(...legalFromState(state, pt, color));
+    }
+  }
+
+  return moves;
+}
+
+function legalFromState(state, from, color){
+  const moves = [];
+  const checked = new Set();
+
+  for(const die of state.movesLeft){
+    if(checked.has(die)) continue;
+    checked.add(die);
+
+    if(from === 'bar'){
+      const to = color === 'white' ? 25 - die : die;
+      if(to >= 1 && to <= 24 && canLandState(state, to, color))
+        moves.push({from: 'bar', to, die});
+    } else {
+      const to = from + dir(color) * die;
+      if(to >= 1 && to <= 24 && canLandState(state, to, color)){
+        moves.push({from, to, die});
+      } else if(bearOffOkState(state, from, die, color)){
+        moves.push({from, to: 0, die});
+      }
+    }
+  }
+
+  return moves;
+}
+
+function canLandState(state, pt, color){
+  const p = state.pts[pt-1];
+  return !p.c || p.c === color || p.n === 1;
+}
+
+function bearOffOkState(state, from, die, color){
+  if(!allInHomeState(state, color)) return false;
+  const to = from + dir(color) * die;
+
+  if(color === 'white'){
+    if(to === 0) return true;
+    if(to < 0){
+      for(let p = from + 1; p <= 6; p++)
+        if(state.pts[p-1].c === 'white' && state.pts[p-1].n > 0) return false;
+      return true;
+    }
+  } else {
+    if(to === 25) return true;
+    if(to > 25){
+      for(let p = from - 1; p >= 19; p--)
+        if(state.pts[p-1].c === 'black' && state.pts[p-1].n > 0) return false;
+      return true;
+    }
+  }
+  return false;
+}
+
+function allInHomeState(state, color){
+  if(state.bar[color] > 0) return false;
+  const lo = color === 'white' ? 1 : 19;
+  const hi = color === 'white' ? 6 : 24;
+  for(let p = 1; p <= 24; p++)
+    if((p < lo || p > hi) && state.pts[p-1].c === color && state.pts[p-1].n > 0)
+      return false;
+  return true;
+}
+
+function generateAllTuples(state, color){
+  const results = [];
+  let maxDiceUsed = 0;
+
+  function recurse(currentState, remainingDice, movesSoFar){
+    let foundMove = false;
+    const uniqueDice = [...new Set(remainingDice)];
+
+    for(const die of uniqueDice){
+      const moves = getAllLegalMovesFromState(currentState, color);
+      const movesWithDie = moves.filter(m => m.die === die);
+
+      for(const move of movesWithDie){
+        foundMove = true;
+        const newState = applyMoveToState(currentState, move, color);
+        const newRemaining = [...remainingDice];
+        newRemaining.splice(newRemaining.indexOf(die), 1);
+        recurse(newState, newRemaining, [...movesSoFar, move]);
+      }
+    }
+
+    if(!foundMove || remainingDice.length === 0){
+      if(movesSoFar.length > maxDiceUsed){
+        maxDiceUsed = movesSoFar.length;
+        results.length = 0;
+        results.push(movesSoFar);
+      } else if(movesSoFar.length === maxDiceUsed && movesSoFar.length > 0){
+        results.push(movesSoFar);
+      }
+    }
+  }
+
+  recurse(state, state.movesLeft, []);
+
+  // If only 1 die can be used and dice are different, keep only higher die
+  if(maxDiceUsed === 1 && state.movesLeft.length === 2 && state.movesLeft[0] !== state.movesLeft[1]){
+    const higher = Math.max(state.movesLeft[0], state.movesLeft[1]);
+    const higherTuples = results.filter(t => t[0].die === higher);
+    if(higherTuples.length > 0){
+      return deduplicateTuples(higherTuples, color, state);
+    }
+  }
+
+  return deduplicateTuples(results, color, state);
+}
+
+function deduplicateTuples(tuples, color, baseState){
+  const seen = new Set();
+  const unique = [];
+
+  for(const tuple of tuples){
+    const finalState = applyTupleToState(baseState, tuple, color);
+    const hash = hashState(finalState);
+    if(!seen.has(hash)){
+      seen.add(hash);
+      unique.push(tuple);
+    }
+  }
+
+  return unique;
+}
+
+function applyTupleToState(state, tuple, color){
+  let s = cloneState(state);
+  for(const move of tuple){
+    s = applyMoveToState(s, move, color);
+  }
+  return s;
+}
+
+function hashState(state){
+  let h = '';
+  for(let i = 0; i < 24; i++){
+    h += state.pts[i].n + (state.pts[i].c || 'x');
+  }
+  h += `|w${state.bar.white}b${state.bar.black}|W${state.off.white}B${state.off.black}`;
+  return h;
+}
+
+// ── Position Evaluation ────────────────────────────────────────────
+function pipCount(state, color){
+  let sum = 0;
+  for(let pt = 1; pt <= 24; pt++){
+    const p = state.pts[pt-1];
+    if(p.c === color){
+      const dist = color === 'white' ? pt : 25 - pt;
+      sum += dist * p.n;
+    }
+  }
+  sum += state.bar[color] * 25;
+  return sum;
+}
+
+function evaluatePosition(state, aiColor){
+  const opp = aiColor === 'white' ? 'black' : 'white';
+  let score = 0;
+
+  // Pip count advantage
+  score += (pipCount(state, opp) - pipCount(state, aiColor)) * 1;
+
+  // Bearing off progress
+  score += state.off[aiColor] * 30;
+  score -= state.off[opp] * 30;
+
+  // Bar penalty
+  score -= state.bar[aiColor] * 25;
+  score += state.bar[opp] * 25;
+
+  // Blot exposure
+  const myHome = aiColor === 'white' ? [19, 24] : [1, 6];
+  const oppHome = aiColor === 'white' ? [1, 6] : [19, 24];
+
+  for(let pt = 1; pt <= 24; pt++){
+    const p = state.pts[pt-1];
+    if(p.c === aiColor && p.n === 1){
+      const inOppHome = pt >= oppHome[0] && pt <= oppHome[1];
+      score -= inOppHome ? 15 : 8;
+    }
+    if(p.c === opp && p.n === 1){
+      const inMyHome = pt >= myHome[0] && pt <= myHome[1];
+      score += inMyHome ? 15 : 8;
+    }
+  }
+
+  // Anchors in opponent's home
+  const oppHomeRange = aiColor === 'white' ? [1, 6] : [19, 24];
+  const goldenPoints = aiColor === 'white' ? [4, 5] : [20, 21];
+
+  for(let pt = oppHomeRange[0]; pt <= oppHomeRange[1]; pt++){
+    const p = state.pts[pt-1];
+    if(p.c === aiColor && p.n >= 2){
+      score += 10;
+      if(goldenPoints.includes(pt)) score += 5;
+    }
+  }
+
+  // Home board strength
+  const homeRange = aiColor === 'white' ? [1, 6] : [19, 24];
+  for(let pt = homeRange[0]; pt <= homeRange[1]; pt++){
+    const p = state.pts[pt-1];
+    if(p.c === aiColor && p.n >= 2){
+      score += 8;
+    }
+  }
+
+  // Prime detection
+  let primeLen = 0, maxPrime = 0;
+  for(let pt = 1; pt <= 24; pt++){
+    const p = state.pts[pt-1];
+    if(p.c === aiColor && p.n >= 2){
+      primeLen++;
+      maxPrime = Math.max(maxPrime, primeLen);
+    } else {
+      primeLen = 0;
+    }
+  }
+  if(maxPrime >= 3) score += maxPrime * 15;
+  if(maxPrime >= 6) score += 30;
+
+  // Stack penalty
+  for(let pt = 1; pt <= 24; pt++){
+    const p = state.pts[pt-1];
+    if(p.c === aiColor && p.n > 4){
+      score -= (p.n - 4) * 3;
+    }
+  }
+
+  return score;
+}
+
+function winProbability(state, color){
+  const score = evaluatePosition(state, color);
+  return 1 / (1 + Math.exp(-0.05 * score));
+}
+
+// ── AI Difficulty Levels ───────────────────────────────────────────
+function aiChooseMove(){
+  const tuples = generateAllTuples(cloneState(G), AI.color);
+  if(tuples.length === 0) return null;
+
+  switch(AI.difficulty){
+    case 'easy': return easyChoice(tuples);
+    case 'medium': return mediumChoice(tuples);
+    case 'hard': return hardChoice(tuples);
+    default: return tuples[0];
+  }
+}
+
+function easyChoice(tuples){
+  // Pick randomly from top 3 evaluated
+  const scored = tuples.map(t => ({
+    tuple: t,
+    score: evaluatePosition(applyTupleToState(G, t, AI.color), AI.color)
+  }));
+  scored.sort((a, b) => b.score - a.score);
+  const topN = scored.slice(0, Math.min(3, scored.length));
+  return topN[Math.floor(Math.random() * topN.length)].tuple;
+}
+
+function mediumChoice(tuples){
+  let bestTuple = tuples[0];
+  let bestScore = -Infinity;
+
+  for(const tuple of tuples){
+    const resultState = applyTupleToState(G, tuple, AI.color);
+    const score = evaluatePosition(resultState, AI.color);
+    if(score > bestScore){
+      bestScore = score;
+      bestTuple = tuple;
+    }
+  }
+
+  return bestTuple;
+}
+
+function hardChoice(tuples){
+  return expectiminimax(G, AI.color, tuples);
+}
+
+function expectiminimax(state, aiColor, tuples){
+  const opp = aiColor === 'white' ? 'black' : 'white';
+
+  if(tuples.length === 0) return null;
+  if(tuples.length === 1) return tuples[0];
+
+  // Pre-score and take top 8
+  const scored = tuples.map(t => {
+    const s = applyTupleToState(state, t, aiColor);
+    return { tuple: t, state: s, score: evaluatePosition(s, aiColor) };
+  });
+  scored.sort((a, b) => b.score - a.score);
+  const candidates = scored.slice(0, Math.min(8, scored.length));
+
+  // 21 distinct dice outcomes
+  const diceOutcomes = [];
+  for(let a = 1; a <= 6; a++)
+    for(let b = a; b <= 6; b++)
+      diceOutcomes.push({ dice: [a, b], prob: a === b ? 1/36 : 2/36 });
+
+  let bestTuple = candidates[0].tuple;
+  let bestExpected = -Infinity;
+
+  for(const cand of candidates){
+    let expected = 0;
+    for(const outcome of diceOutcomes){
+      const oppState = cloneState(cand.state);
+      oppState.movesLeft = outcome.dice[0] === outcome.dice[1]
+        ? [outcome.dice[0], outcome.dice[0], outcome.dice[0], outcome.dice[0]]
+        : [outcome.dice[0], outcome.dice[1]];
+
+      const oppTuples = generateAllTuples(oppState, opp);
+      let worstForAI = evaluatePosition(oppState, aiColor);
+
+      for(const ot of oppTuples){
+        const resultState = applyTupleToState(oppState, ot, opp);
+        const val = evaluatePosition(resultState, aiColor);
+        worstForAI = Math.min(worstForAI, val);
+      }
+
+      expected += outcome.prob * worstForAI;
+    }
+
+    if(expected > bestExpected){
+      bestExpected = expected;
+      bestTuple = cand.tuple;
+    }
+  }
+
+  return bestTuple;
+}
+
+// ── AI Turn Execution ──────────────────────────────────────────────
+function checkAITurn(){
+  if(!AI.enabled || G.player !== AI.color || G.phase !== 'roll') return;
+
+  // Consider doubling
+  if(CUBE.owner === null || CUBE.owner === AI.color){
+    const winProb = winProbability(G, AI.color);
+    if(winProb >= 0.70 && CUBE.value < 64){
+      setTimeout(() => aiOfferDouble(), 600);
+      return;
+    }
+  }
+
+  syncBtns();
+  msg('Computer is thinking...');
+
+  setTimeout(() => {
+    rollDice(true);
+    if(G.phase === 'won') return;
+    if(G.phase !== 'move') return;
+
+    const tuple = aiChooseMove();
+    if(!tuple || tuple.length === 0){
+      return;
+    }
+
+    executeAIMoves(tuple, 0);
+  }, 800);
+}
+
+function executeAIMoves(tuple, index){
+  if(index >= tuple.length){
+    setTimeout(() => {
+      endTurn();
+    }, 600);
+    return;
+  }
+
+  const mv = tuple[index];
+  applyMove(mv);
+  G.sel = null;
+  G.hints = [];
+
+  if(G.off[G.player] === 15){
+    msg('Computer wins!');
+    G.phase = 'won';
+    syncBtns();
+    draw();
+    return;
+  }
+
+  draw();
+  setTimeout(() => executeAIMoves(tuple, index + 1), 500);
+}
+
+// ── Doubling Cube ──────────────────────────────────────────────────
+function updateCubeDisplay(){
+  const display = document.getElementById('cube-display');
+  if(CUBE.value > 1 || CUBE.owner){
+    display.style.display = 'block';
+    let text = `Cube: ${CUBE.value}`;
+    if(CUBE.owner) text += ` (${CUBE.owner})`;
+    display.textContent = text;
+  } else {
+    display.style.display = 'none';
+  }
+}
+
+function offerDouble(){
+  if(G.phase !== 'roll') return;
+  if(CUBE.owner !== null && CUBE.owner !== G.player) return;
+  if(CUBE.value >= 64) return;
+  if(!AI.enabled) return;
+
+  CUBE.value *= 2;
+  CUBE.offered = true;
+  syncBtns();
+
+  msg(`You doubled to ${CUBE.value}! Computer is deciding...`);
+
+  setTimeout(() => {
+    const winProb = winProbability(G, AI.color);
+    if(winProb >= 0.25){
+      CUBE.owner = AI.color;  // AI accepted, so AI owns the cube
+      CUBE.offered = false;
+      updateCubeDisplay();
+      msg(`Computer accepts! ${cap(G.player)}'s turn — Roll the dice`);
+      syncBtns();
+    } else {
+      msg(`Computer declines. You win ${CUBE.value / 2} points!`);
+      G.phase = 'won';
+      syncBtns();
+    }
+  }, 1200);
+}
+
+function aiOfferDouble(){
+  CUBE.value *= 2;
+  CUBE.offered = true;
+
+  const modal = document.getElementById('modal');
+  const content = document.getElementById('modal-content');
+  content.innerHTML = `
+    <h2>Computer Doubles!</h2>
+    <div style="margin:20px 0;font-size:13px;letter-spacing:1px;">
+      The computer offers to double the stakes to ${CUBE.value}.
+    </div>
+    <div class="modal-row">
+      <button onclick="acceptDouble()">Accept</button>
+      <button onclick="declineDouble()">Decline</button>
+    </div>
+  `;
+  modal.style.display = 'flex';
+}
+
+function acceptDouble(){
+  const humanColor = AI.color === 'white' ? 'black' : 'white';
+  CUBE.owner = humanColor;  // Human accepted, so human owns the cube
+  CUBE.offered = false;
+  updateCubeDisplay();
+  hideModal();
+  checkAITurn();
+}
+
+function declineDouble(){
+  hideModal();
+  msg(`You declined. Computer wins ${CUBE.value / 2} points!`);
+  G.phase = 'won';
+  syncBtns();
+}
+
 // ── Game actions ───────────────────────────────────────────────────
-function rollDice(){
+function rollDice(_internal){
   if(G.phase!=='roll') return;
+  if(!_internal && AI.enabled && G.player === AI.color) return;
+
   const a=r6(),b=r6();
   G.dice=[a,b];
   G.movesLeft=a===b?[a,a,a,a]:[a,b];
@@ -221,7 +826,8 @@ function rollDice(){
   syncBtns();
   if(!anyLegal()){
     msg(`${cap(G.player)} rolled ${diceStr()} — No legal moves!`);
-    setTimeout(endTurn,1400);
+    const isAI = AI.enabled && G.player === AI.color;
+    setTimeout(endTurn, isAI ? 800 : 1400);
   } else {
     msg(`${cap(G.player)} rolled ${diceStr()} — Tap a checker to move`);
   }
@@ -238,6 +844,8 @@ function endTurn(){
   syncBtns();
   msg(`${cap(G.player)}'s turn — Roll the dice`);
   draw();
+
+  setTimeout(checkAITurn, 300);
 }
 
 function undoTurn(){
@@ -253,6 +861,7 @@ const canvas=document.getElementById('c');
 canvas.addEventListener('pointerdown',onTap);
 
 function onTap(e){
+  if(AI.enabled && G.player === AI.color) return; // Block interaction during AI turn
   if(G.phase!=='move'&&G.phase!=='nomoves') return;
   if(G.phase==='nomoves') return;
   e.preventDefault();
@@ -507,10 +1116,17 @@ function drawDice(){
 function msg(s){document.getElementById('status').textContent=s;}
 function cap(s){return s[0].toUpperCase()+s.slice(1);}
 function syncBtns(){
+  const isAITurn = AI.enabled && G.player === AI.color;
   const inMove=G.phase==='move'||G.phase==='nomoves';
-  document.getElementById('rollBtn').disabled=G.phase!=='roll';
-  document.getElementById('undoBtn').disabled=!SNAP||G.phase==='won';
-  document.getElementById('passBtn').disabled=G.phase!=='nomoves';
+
+  document.getElementById('rollBtn').disabled=G.phase!=='roll' || isAITurn;
+  document.getElementById('undoBtn').disabled=!SNAP||G.phase==='won'||isAITurn;
+  document.getElementById('passBtn').disabled=G.phase!=='nomoves'||isAITurn;
+
+  const canDouble = AI.enabled && G.phase === 'roll' && !isAITurn
+                    && (CUBE.owner === null || CUBE.owner === G.player)
+                    && CUBE.value < 64;
+  document.getElementById('doubleBtn').disabled=!canDouble;
 }
 </script>
 </body>
