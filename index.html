@@ -323,30 +323,23 @@ function selectFrom(src){
   G.hints=[...new Set(movs.map(m=>m.to))];
 }
 
-// Find nearest point by center x — more forgiving on mobile
 function hitTest(x,y){
   if(y<TOP||y>BOT) return null;
   if(x>=BAR_X&&x<BAR_X+BW) return 'bar';
   if(x>=BOFF_X) return 0;
-  // Left/right of bar
-  let best=null, bestDist=PW*0.75;
-  for(let pt=1;pt<=24;pt++){
-    const cx=ptCX(pt);
-    // Only consider the half (top/bottom) matching the tap
-    if(isTop(pt)&&y>MID_T+2) continue;
-    if(!isTop(pt)&&y<MID_B-2) continue;
-    const d=Math.abs(x-cx);
-    if(d<bestDist){bestDist=d;best=pt;}
+
+  const inTop = y < (MID_T+MID_B)/2;
+
+  if(x>=BAR_X+BW){
+    // Right side of bar: top = pts 19-24, bottom = pts 6-1
+    const col=Math.max(0,Math.min(5,Math.floor((x-(BAR_X+BW))/PW)));
+    return inTop ? 19+col : 6-col;
+  } else if(x>=BX){
+    // Left side of bar: top = pts 13-18, bottom = pts 12-7
+    const col=Math.max(0,Math.min(5,Math.floor((x-BX)/PW)));
+    return inTop ? 13+col : 12-col;
   }
-  // Fallback: ignore y constraint
-  if(best===null){
-    bestDist=PW*0.75;
-    for(let pt=1;pt<=24;pt++){
-      const d=Math.abs(x-ptCX(pt));
-      if(d<bestDist){bestDist=d;best=pt;}
-    }
-  }
-  return best;
+  return null;
 }
 
 // ── Rendering ──────────────────────────────────────────────────────
