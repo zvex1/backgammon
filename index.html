@@ -35,12 +35,12 @@ button:disabled{opacity:.3;pointer-events:none;}
 <div id="btns">
   <button id="rollBtn"  onclick="rollDice()" disabled>Roll</button>
   <button id="undoBtn"  onclick="undoTurn()"  disabled>Undo Turn</button>
-  <button id="passBtn"  onclick="endTurn()"   disabled>Pass Turn</button>
+  <button id="passBtn"  onclick="endTurn()"   disabled>End Turn</button>
   <button onclick="newGame()">New Game</button>
 </div>
 <script>
 // ── Layout ─────────────────────────────────────────────────────────
-const CW=420, CH=510;
+const CW=450, CH=510;
 const MX=10, PW=30, BW=30, PH=158, CR=12;
 const TOP=8, BOT=TOP+2*PH+28;   // 8 .. 352
 const MID_T=TOP+PH, MID_B=MID_T+28;
@@ -301,9 +301,9 @@ function executeMove(mv){
 
   // No more moves this turn
   if(G.movesLeft.length>0){
-    msg(`${cap(G.player)}: No more legal moves. Pass turn.`);
+    msg(`${cap(G.player)}: No more legal moves. End your turn.`);
   } else {
-    msg(`${cap(G.player)}: All moves used. Pass turn.`);
+    msg(`${cap(G.player)}: All moves used. End your turn.`);
   }
   G.phase='nomoves'; syncBtns(); draw();
 }
@@ -510,7 +510,7 @@ function syncBtns(){
   const inMove=G.phase==='move'||G.phase==='nomoves';
   document.getElementById('rollBtn').disabled=G.phase!=='roll';
   document.getElementById('undoBtn').disabled=!SNAP||G.phase==='won';
-  document.getElementById('passBtn').disabled=!inMove;
+  document.getElementById('passBtn').disabled=G.phase!=='nomoves';
 }
 </script>
 </body>
