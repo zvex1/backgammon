@@ -7,41 +7,23 @@
 <style>
 *{margin:0;padding:0;box-sizing:border-box;-webkit-tap-highlight-color:transparent;}
 body{
-  background:#0d0800;
-  min-height:100vh;
+  background:#0d0800;min-height:100vh;
   display:flex;flex-direction:column;align-items:center;
   font-family:'Georgia','Times New Roman',serif;
-  color:#d4af37;
-  padding:10px 4px 30px;
-  overflow-x:hidden;
+  color:#d4af37;padding:10px 4px 30px;overflow-x:hidden;
 }
-h1{
-  font-size:16px;font-weight:normal;
-  letter-spacing:8px;text-transform:uppercase;
-  margin-bottom:6px;color:#d4af37;
-  text-shadow:0 0 20px rgba(212,175,55,0.5);
-}
-canvas{
-  display:block;width:100%;max-width:440px;height:auto;
-  touch-action:none;
-  border:2px solid #3d2510;border-radius:3px;
-  box-shadow:0 0 50px rgba(0,0,0,0.95);
-}
-#status{
-  margin-top:8px;font-size:13px;color:#d4af37;
-  text-align:center;min-height:40px;
-  letter-spacing:.5px;padding:0 12px;line-height:1.6;
-}
-#btns{display:flex;gap:10px;margin-top:10px;flex-wrap:wrap;justify-content:center;}
-button{
-  background:transparent;color:#d4af37;
-  border:1px solid #5a3d18;
-  padding:11px 22px;
-  font-family:Georgia,serif;font-size:11px;
-  letter-spacing:2px;text-transform:uppercase;
-  cursor:pointer;border-radius:2px;
-  transition:background .12s,color .12s;
-}
+h1{font-size:16px;font-weight:normal;letter-spacing:8px;text-transform:uppercase;
+   margin-bottom:6px;color:#d4af37;text-shadow:0 0 20px rgba(212,175,55,0.5);}
+canvas{display:block;width:100%;max-width:440px;height:auto;
+       touch-action:none;border:2px solid #3d2510;border-radius:3px;
+       box-shadow:0 0 50px rgba(0,0,0,0.95);}
+#status{margin-top:8px;font-size:13px;color:#d4af37;text-align:center;
+        min-height:40px;letter-spacing:.5px;padding:0 12px;line-height:1.6;}
+#btns{display:flex;gap:8px;margin-top:10px;flex-wrap:wrap;justify-content:center;}
+button{background:transparent;color:#d4af37;border:1px solid #5a3d18;
+       padding:11px 18px;font-family:Georgia,serif;font-size:11px;
+       letter-spacing:2px;text-transform:uppercase;cursor:pointer;border-radius:2px;
+       transition:background .12s,color .12s;}
 button:active,button:focus{outline:none;background:#d4af37;color:#0d0800;}
 button:disabled{opacity:.3;pointer-events:none;}
 </style>
@@ -51,45 +33,51 @@ button:disabled{opacity:.3;pointer-events:none;}
 <canvas id="c"></canvas>
 <div id="status">Press New Game to start</div>
 <div id="btns">
-  <button id="rollBtn" onclick="rollDice()" disabled>Roll Dice</button>
-  <button id="passBtn" onclick="endTurn()" disabled>Pass Turn</button>
+  <button id="rollBtn"  onclick="rollDice()" disabled>Roll</button>
+  <button id="undoBtn"  onclick="undoTurn()"  disabled>Undo Turn</button>
+  <button id="passBtn"  onclick="endTurn()"   disabled>Pass Turn</button>
   <button onclick="newGame()">New Game</button>
 </div>
 <script>
-// ── Layout constants ───────────────────────────────────────────────
-const CW=420,CH=510;
-const MX=10;       // outer margin
-const PW=30;       // point width
-const BW=30;       // bar width
-const PH=158;      // triangle height
-const CR=12;       // checker radius
-const BOFF_W=42;   // bear-off column width
-
-const TOP=8, BOT=TOP+2*PH+28;   // 8, 352
-const MID_T=TOP+PH;              // 166
-const MID_B=MID_T+28;            // 194
-
-// Board x-zones
-const BX=MX;                  // left edge of board  = 10
-const BAR_X=BX+6*PW;          // bar left            = 190
-const RX=BAR_X+BW+6*PW;       // right edge of board = 400
-const BOFF_X=RX+4;             // bear-off column left= 404
+// ── Layout ─────────────────────────────────────────────────────────
+const CW=420, CH=510;
+const MX=10, PW=30, BW=30, PH=158, CR=12;
+const TOP=8, BOT=TOP+2*PH+28;   // 8 .. 352
+const MID_T=TOP+PH, MID_B=MID_T+28;
+const BX=MX;
+const BAR_X=BX+6*PW;            // 190
+const RX=BAR_X+BW+6*PW;         // 400
+const BOFF_X=RX+4;               // 404
 const DICE_Y=BOT+16;
 
-// Colours
-const C={
+const COL={
   felt:'#193624',bar:'#3d2210',
   t1:'#7a2828',t2:'#1a4030',
   wh:'#f0ead8',whSh:'#b0aa92',whRim:'#888070',
   bl:'#180e04',blSh:'#382408',blRim:'#6a5018',
-  gold:'#d4af37',dimG:'#5a3d10',
+  gold:'#d4af37',
   sel:'rgba(255,220,50,0.22)',
   hint:'rgba(60,220,100,0.25)',hDot:'rgba(60,220,100,0.9)',
   bearHL:'rgba(60,220,100,0.3)',
 };
 
 // ── State ──────────────────────────────────────────────────────────
-let G;
+let G;      // live game state
+let SNAP;   // snapshot taken just after rolling (for undo)
+
+function cloneState(s){
+  return {
+    pts: s.pts.map(p=>({...p})),
+    bar: {...s.bar},
+    off: {...s.off},
+    dice: [...s.dice],
+    movesLeft: [...s.movesLeft],
+    player: s.player,
+    phase: s.phase,
+    sel: s.sel,
+    hints: [...s.hints],
+  };
+}
 
 function newGame(){
   G={
@@ -100,6 +88,7 @@ function newGame(){
     player:'white', phase:'roll',
     sel:null, hints:[],
   };
+  SNAP=null;
   sp(1,'black',2); sp(6,'white',5); sp(8,'white',3);  sp(12,'black',5);
   sp(13,'white',5);sp(17,'black',3);sp(19,'black',5); sp(24,'white',2);
   syncBtns();
@@ -111,10 +100,10 @@ function gp(pt){return G.pts[pt-1];}
 
 // ── Coordinates ────────────────────────────────────────────────────
 function ptX(pt){
-  if(pt>=19&&pt<=24) return BAR_X+BW+(pt-19)*PW;
-  if(pt>=13&&pt<=18) return BX+(pt-13)*PW;
-  if(pt>=7 &&pt<=12) return BX+(12-pt)*PW;
-                     return BAR_X+BW+(6-pt)*PW;
+  if(pt>=19) return BAR_X+BW+(pt-19)*PW;  // top-right: 19→24
+  if(pt>=13) return BX+(pt-13)*PW;          // top-left:  13→18
+  if(pt>=7)  return BX+(12-pt)*PW;          // bot-left:  12→7
+             return BAR_X+BW+(6-pt)*PW;     // bot-right:  6→1
 }
 function ptCX(pt){return ptX(pt)+PW/2;}
 function isTop(pt){return pt>=13;}
@@ -122,99 +111,140 @@ function ckY(pt,i){
   return isTop(pt)?TOP+CR+2+i*(CR*2+1):BOT-CR-2-i*(CR*2+1);
 }
 
-// ── Game logic ─────────────────────────────────────────────────────
+// ── Logic helpers ──────────────────────────────────────────────────
 function dir(c){return c==='white'?-1:1;}
-
-function homeRange(c){return c==='white'?[1,6]:[19,24];}
 
 function allInHome(c){
   if(G.bar[c]>0) return false;
-  const[lo,hi]=homeRange(c);
+  // white home = 1-6, black home = 19-24
+  const lo=c==='white'?1:19, hi=c==='white'?6:24;
   for(let p=1;p<=24;p++)
-    if((p<lo||p>hi)&&gp(p).c===c&&gp(p).n>0) return false;
+    if((p<lo||p>hi) && gp(p).c===c && gp(p).n>0) return false;
   return true;
 }
 
 function canLand(pt,c){
   const p=gp(pt);
-  return !p.c||p.c===c||p.n<=1;
+  return !p.c || p.c===c || p.n===1;
 }
 
+// Can we bear off from `from` using `die`?
+function bearOffOk(from,die,c){
+  if(!allInHome(c)) return false;
+  const to=from+dir(c)*die;
+  if(c==='white'){
+    if(to===0) return true;           // exact
+    if(to<0){                         // overshoot: no checker on higher pts
+      for(let p=from+1;p<=6;p++)
+        if(gp(p).c==='white'&&gp(p).n>0) return false;
+      return true;
+    }
+  } else {
+    if(to===25) return true;
+    if(to>25){
+      for(let p=from-1;p>=19;p--)
+        if(gp(p).c==='black'&&gp(p).n>0) return false;
+      return true;
+    }
+  }
+  return false;
+}
+
+// All legal moves from a source (returns array of {from,to,die})
 function legalFrom(from){
-  const c=G.player,d=dir(c);
+  const c=G.player;
   const moves=[];
-  const dice=[...new Set(G.movesLeft)];
-  for(const die of dice){
+  // Use unique die values to avoid duplicate destination entries,
+  // but we still need to find moves for each die separately
+  const checked=new Set();
+  for(const die of G.movesLeft){
+    if(checked.has(die)) continue;
+    checked.add(die);
     if(from==='bar'){
-      const to=c==='white'?25-die:die;
-      if(to>=1&&to<=24&&canLand(to,c)) moves.push({from:'bar',to,die});
+      const to=c==='white'?25-die:die;   // white enters on 25-die (pts 24..19), black on die (pts 1..6)
+      if(to>=1&&to<=24&&canLand(to,c))
+        moves.push({from:'bar',to,die});
     } else {
-      const to=from+d*die;
+      const to=from+dir(c)*die;
       if(to>=1&&to<=24&&canLand(to,c)){
         moves.push({from,to,die});
-      } else if(allInHome(c)){
-        // bearing off
-        const exact=(c==='white'&&to===0)||(c==='black'&&to===25);
-        const over =c==='white'?to<0:to>25;
-        if(exact||(over&&highestOwn(c)===from)){
-          moves.push({from,to:0,die});
-        }
+      } else if(bearOffOk(from,die,c)){
+        moves.push({from,to:0,die});
       }
     }
   }
   return moves;
 }
 
-function highestOwn(c){
-  if(c==='white'){for(let p=6;p>=1;p--) if(gp(p).c==='white'&&gp(p).n>0) return p;}
-  else           {for(let p=19;p<=24;p++) if(gp(p).c==='black'&&gp(p).n>0) return p;}
-  return null;
-}
-
 function anyLegal(){
   const c=G.player;
   if(G.bar[c]>0) return legalFrom('bar').length>0;
-  for(let p=1;p<=24;p++) if(gp(p).c===c&&gp(p).n>0&&legalFrom(p).length>0) return true;
+  for(let p=1;p<=24;p++)
+    if(gp(p).c===c&&gp(p).n>0&&legalFrom(p).length>0) return true;
   return false;
 }
 
 function applyMove(mv){
-  const c=G.player,opp=c==='white'?'black':'white';
-  if(mv.from==='bar') G.bar[c]--;
-  else {gp(mv.from).n--;if(gp(mv.from).n===0)gp(mv.from).c=null;}
+  const c=G.player, opp=c==='white'?'black':'white';
+  // Remove from source
+  if(mv.from==='bar'){
+    G.bar[c]--;
+  } else {
+    gp(mv.from).n--;
+    if(gp(mv.from).n===0) gp(mv.from).c=null;
+  }
+  // Place on destination
   if(mv.to===0){
     G.off[c]++;
   } else {
     const d=gp(mv.to);
-    if(d.c===opp&&d.n===1){d.n=0;d.c=null;G.bar[opp]++;}
-    d.n++;d.c=c;
+    if(d.c===opp&&d.n===1){   // hit a blot
+      d.n=0; d.c=null; G.bar[opp]++;
+    }
+    d.n++; d.c=c;
   }
+  // Consume one instance of this die
   const i=G.movesLeft.indexOf(mv.die);
   G.movesLeft.splice(i,1);
 }
 
+// ── Game actions ───────────────────────────────────────────────────
 function rollDice(){
   if(G.phase!=='roll') return;
   const a=r6(),b=r6();
   G.dice=[a,b];
   G.movesLeft=a===b?[a,a,a,a]:[a,b];
-  G.phase='move';G.sel=null;G.hints=[];
+  G.phase='move';
+  G.sel=null; G.hints=[];
+  // Save snapshot for undo
+  SNAP=cloneState(G);
   syncBtns();
   if(!anyLegal()){
-    msg(`${cap(G.player)} rolled ${G.dice.join(' & ')} — No legal moves!`);
-    setTimeout(endTurn,1200);
+    msg(`${cap(G.player)} rolled ${diceStr()} — No legal moves!`);
+    setTimeout(endTurn,1400);
   } else {
-    msg(`${cap(G.player)} rolled ${G.dice.join(' & ')} — Tap a checker`);
+    msg(`${cap(G.player)} rolled ${diceStr()} — Tap a checker to move`);
   }
   draw();
 }
 function r6(){return Math.floor(Math.random()*6)+1;}
+function diceStr(){return G.dice.join(' & ');}
 
 function endTurn(){
-  G.sel=null;G.hints=[];G.movesLeft=[];G.dice=[];
+  G.sel=null; G.hints=[];
+  G.movesLeft=[]; G.dice=[];
   G.player=G.player==='white'?'black':'white';
-  G.phase='roll';syncBtns();
+  G.phase='roll'; SNAP=null;
+  syncBtns();
   msg(`${cap(G.player)}'s turn — Roll the dice`);
+  draw();
+}
+
+function undoTurn(){
+  if(!SNAP) return;
+  G=cloneState(SNAP);
+  syncBtns();
+  msg(`${cap(G.player)} rolled ${diceStr()} — Tap a checker to move`);
   draw();
 }
 
@@ -223,7 +253,8 @@ const canvas=document.getElementById('c');
 canvas.addEventListener('pointerdown',onTap);
 
 function onTap(e){
-  if(G.phase!=='move') return;
+  if(G.phase!=='move'&&G.phase!=='nomoves') return;
+  if(G.phase==='nomoves') return;
   e.preventDefault();
   const r=canvas.getBoundingClientRect();
   const x=(e.clientX-r.left)*(CW/r.width);
@@ -232,37 +263,49 @@ function onTap(e){
   const c=G.player;
 
   if(G.sel!==null){
-    // Try move
-    if(tgt===0&&G.hints.includes(0)){
-      doMove(legalFrom(G.sel).find(m=>m.to===0));return;
+    // Try to execute move to tapped target
+    const movs=legalFrom(G.sel);
+    const mv=movs.find(m=>m.to===tgt);
+    if(mv){
+      executeMove(mv); return;
     }
-    if(typeof tgt==='number'&&tgt>=1&&tgt<=24&&G.hints.includes(tgt)){
-      doMove(legalFrom(G.sel).find(m=>m.to===tgt));return;
+    // Tap on own checker → re-select
+    if(isOwn(tgt,c)){
+      selectFrom(tgt); draw(); return;
     }
-    // Re-select own checker
-    if(isOwn(tgt,c)){selectFrom(tgt);draw();return;}
-    // Deselect
-    G.sel=null;G.hints=[];draw();return;
+    // Tap elsewhere → deselect
+    G.sel=null; G.hints=[]; draw(); return;
   }
 
-  if(isOwn(tgt,c)){selectFrom(tgt);draw();}
+  // Select a checker
+  if(isOwn(tgt,c)){
+    selectFrom(tgt); draw();
+  }
 }
 
-function doMove(mv){
-  if(!mv) return;
+function executeMove(mv){
   applyMove(mv);
-  G.sel=null;G.hints=[];
+  G.sel=null; G.hints=[];
+
+  // Win check
   if(G.off[G.player]===15){
     msg(`🏆 ${cap(G.player)} wins! Press New Game.`);
-    G.phase='won';syncBtns();draw();return;
+    G.phase='won'; syncBtns(); draw(); return;
   }
-  if(!G.movesLeft.length||!anyLegal()){
-    msg(G.movesLeft.length?`${cap(G.player)}: No more legal moves.`:
-       `${cap(G.player)}: All moves used. Pass turn.`);
-    G.phase='over';syncBtns();draw();return;
+
+  // More moves?
+  if(G.movesLeft.length>0&&anyLegal()){
+    msg(`${cap(G.player)}: Tap a checker (${G.movesLeft.join(', ')} left)`);
+    syncBtns(); draw(); return;
   }
-  msg(`${cap(G.player)}: Tap a checker (${G.movesLeft.join(', ')} left)`);
-  syncBtns();draw();
+
+  // No more moves this turn
+  if(G.movesLeft.length>0){
+    msg(`${cap(G.player)}: No more legal moves. Pass turn.`);
+  } else {
+    msg(`${cap(G.player)}: All moves used. Pass turn.`);
+  }
+  G.phase='nomoves'; syncBtns(); draw();
 }
 
 function isOwn(tgt,c){
@@ -272,24 +315,42 @@ function isOwn(tgt,c){
 }
 
 function selectFrom(src){
+  // Must move from bar if checkers are there
   if(G.bar[G.player]>0&&src!=='bar') return;
+  const movs=legalFrom(src);
+  if(movs.length===0) return;  // no legal moves from here, don't select
   G.sel=src;
-  G.hints=[...new Set(legalFrom(src).map(m=>m.to))];
+  G.hints=[...new Set(movs.map(m=>m.to))];
 }
 
+// Find nearest point by center x — more forgiving on mobile
 function hitTest(x,y){
   if(y<TOP||y>BOT) return null;
   if(x>=BAR_X&&x<BAR_X+BW) return 'bar';
   if(x>=BOFF_X) return 0;
+  // Left/right of bar
+  let best=null, bestDist=PW*0.75;
   for(let pt=1;pt<=24;pt++){
-    const px=ptX(pt);
-    if(x>=px&&x<px+PW) return pt;
+    const cx=ptCX(pt);
+    // Only consider the half (top/bottom) matching the tap
+    if(isTop(pt)&&y>MID_T+2) continue;
+    if(!isTop(pt)&&y<MID_B-2) continue;
+    const d=Math.abs(x-cx);
+    if(d<bestDist){bestDist=d;best=pt;}
   }
-  return null;
+  // Fallback: ignore y constraint
+  if(best===null){
+    bestDist=PW*0.75;
+    for(let pt=1;pt<=24;pt++){
+      const d=Math.abs(x-ptCX(pt));
+      if(d<bestDist){bestDist=d;best=pt;}
+    }
+  }
+  return best;
 }
 
 // ── Rendering ──────────────────────────────────────────────────────
-canvas.width=CW;canvas.height=CH;
+canvas.width=CW; canvas.height=CH;
 const ctx=canvas.getContext('2d');
 
 function draw(){
@@ -303,79 +364,66 @@ function drawBoard(){
   ctx.fillStyle='#0d0800';
   ctx.fillRect(0,0,CW,CH);
 
-  // felt
-  ctx.fillStyle=C.felt;
+  ctx.fillStyle=COL.felt;
   ctx.fillRect(BX,TOP,RX-BX,BOT-TOP);
 
-  // triangles
   for(let pt=1;pt<=24;pt++) drawTri(ptX(pt),pt);
 
-  // mid strip
-  ctx.fillStyle=C.bar;
+  ctx.fillStyle=COL.bar;
   ctx.fillRect(BX,MID_T,RX-BX,MID_B-MID_T);
-
-  // bar
-  ctx.fillStyle=C.bar;
   ctx.fillRect(BAR_X,TOP,BW,BOT-TOP);
 
-  // bear-off
   ctx.fillStyle='#150a01';
   ctx.fillRect(BOFF_X,TOP,CW-BOFF_X,BOT-TOP);
-  ctx.fillStyle='#3a2210';
-  ctx.font='8px Georgia';ctx.textAlign='center';
+  ctx.fillStyle='#3a2210'; ctx.font='8px Georgia'; ctx.textAlign='center';
   ctx.fillText('BEAR',(BOFF_X+CW)/2,TOP+PH-4);
   ctx.fillText('OFF', (BOFF_X+CW)/2,TOP+PH+8);
 
-  // selection
+  // Selection highlight
   if(G.sel==='bar'){
-    ctx.fillStyle=C.sel;
-    ctx.fillRect(BAR_X,TOP,BW,BOT-TOP);
+    ctx.fillStyle=COL.sel; ctx.fillRect(BAR_X,TOP,BW,BOT-TOP);
   } else if(G.sel>=1&&G.sel<=24){
+    ctx.fillStyle=COL.sel;
     const sx=ptX(G.sel);
-    ctx.fillStyle=C.sel;
-    if(isTop(G.sel)) ctx.fillRect(sx,TOP,PW,PH);
-    else              ctx.fillRect(sx,BOT-PH,PW,PH);
+    isTop(G.sel)?ctx.fillRect(sx,TOP,PW,PH):ctx.fillRect(sx,BOT-PH,PW,PH);
   }
 
-  // hints
+  // Hint highlights
   for(const h of G.hints){
     if(h===0){
-      ctx.fillStyle=C.bearHL;
+      ctx.fillStyle=COL.bearHL;
       ctx.fillRect(BOFF_X,TOP,CW-BOFF_X,BOT-TOP);
     } else {
       const hx=ptX(h);
-      ctx.fillStyle=C.hint;
-      if(isTop(h)) ctx.fillRect(hx,TOP,PW,PH);
-      else          ctx.fillRect(hx,BOT-PH,PW,PH);
-      ctx.fillStyle=C.hDot;ctx.beginPath();
-      if(isTop(h)) ctx.arc(ptCX(h),TOP+PH-18,6,0,Math.PI*2);
-      else          ctx.arc(ptCX(h),BOT-PH+18,6,0,Math.PI*2);
+      ctx.fillStyle=COL.hint;
+      isTop(h)?ctx.fillRect(hx,TOP,PW,PH):ctx.fillRect(hx,BOT-PH,PW,PH);
+      ctx.fillStyle=COL.hDot; ctx.beginPath();
+      isTop(h)?ctx.arc(ptCX(h),TOP+PH-18,6,0,Math.PI*2)
+             :ctx.arc(ptCX(h),BOT-PH+18,6,0,Math.PI*2);
       ctx.fill();
     }
   }
 
-  // borders
-  ctx.strokeStyle='#4a2d10';ctx.lineWidth=1.5;
+  ctx.strokeStyle='#4a2d10'; ctx.lineWidth=1.5;
   ctx.strokeRect(BX,TOP,RX-BX,BOT-TOP);
-  ctx.strokeStyle='#3a2010';ctx.lineWidth=1;
+  ctx.strokeStyle='#3a2010'; ctx.lineWidth=1;
   ctx.beginPath();ctx.moveTo(BOFF_X,TOP);ctx.lineTo(BOFF_X,BOT);ctx.stroke();
 
-  // point labels
-  ctx.fillStyle='rgba(212,175,55,0.28)';ctx.font='8px Georgia';ctx.textAlign='center';
+  ctx.fillStyle='rgba(212,175,55,0.28)'; ctx.font='8px Georgia'; ctx.textAlign='center';
   for(let pt=1;pt<=24;pt++){
-    if(isTop(pt)) ctx.fillText(pt,ptCX(pt),MID_T-4);
-    else           ctx.fillText(pt,ptCX(pt),MID_B+10);
+    isTop(pt)?ctx.fillText(pt,ptCX(pt),MID_T-4)
+             :ctx.fillText(pt,ptCX(pt),MID_B+10);
   }
 
   drawBearOff();
 }
 
 function drawTri(x,pt){
-  ctx.fillStyle=pt%2===0?C.t1:C.t2;
+  ctx.fillStyle=pt%2===0?COL.t1:COL.t2;
   ctx.beginPath();
-  if(isTop(pt)){ctx.moveTo(x,TOP);ctx.lineTo(x+PW,TOP);ctx.lineTo(x+PW/2,TOP+PH);}
-  else          {ctx.moveTo(x,BOT);ctx.lineTo(x+PW,BOT);ctx.lineTo(x+PW/2,BOT-PH);}
-  ctx.closePath();ctx.fill();
+  isTop(pt)?(ctx.moveTo(x,TOP),ctx.lineTo(x+PW,TOP),ctx.lineTo(x+PW/2,TOP+PH))
+           :(ctx.moveTo(x,BOT),ctx.lineTo(x+PW,BOT),ctx.lineTo(x+PW/2,BOT-PH));
+  ctx.closePath(); ctx.fill();
 }
 
 function drawChecker(cx,cy,col,lbl){
@@ -383,13 +431,13 @@ function drawChecker(cx,cy,col,lbl){
   ctx.beginPath();ctx.arc(cx,cy+1,CR+1,0,Math.PI*2);
   ctx.fillStyle='rgba(0,0,0,0.45)';ctx.fill();
   const g=ctx.createRadialGradient(cx-3,cy-3,1,cx,cy,CR);
-  if(w){g.addColorStop(0,'#fff8e8');g.addColorStop(1,'#ccc0a0');}
-  else {g.addColorStop(0,'#3a2810');g.addColorStop(1,'#0e0800');}
+  w?(g.addColorStop(0,'#fff8e8'),g.addColorStop(1,'#ccc0a0'))
+   :(g.addColorStop(0,'#3a2810'),g.addColorStop(1,'#0e0800'));
   ctx.beginPath();ctx.arc(cx,cy,CR,0,Math.PI*2);
   ctx.fillStyle=g;ctx.fill();
-  ctx.strokeStyle=w?C.whRim:C.blRim;ctx.lineWidth=2;ctx.stroke();
+  ctx.strokeStyle=w?COL.whRim:COL.blRim;ctx.lineWidth=2;ctx.stroke();
   ctx.beginPath();ctx.arc(cx,cy,CR-4,0,Math.PI*2);
-  ctx.strokeStyle=w?C.whSh:C.blSh;ctx.lineWidth=1;ctx.stroke();
+  ctx.strokeStyle=w?COL.whSh:COL.blSh;ctx.lineWidth=1;ctx.stroke();
   if(lbl){
     ctx.fillStyle=w?'#3a3020':'#c8a040';
     ctx.font='bold 10px Georgia';ctx.textAlign='center';ctx.textBaseline='middle';
@@ -399,7 +447,7 @@ function drawChecker(cx,cy,col,lbl){
 
 function drawCheckers(){
   for(let pt=1;pt<=24;pt++){
-    const p=gp(pt);if(!p.n) continue;
+    const p=gp(pt); if(!p.n) continue;
     const show=Math.min(p.n,5);
     for(let i=0;i<show;i++)
       drawChecker(ptCX(pt),ckY(pt,i),p.c,i===0&&p.n>1?p.n:null);
@@ -427,48 +475,49 @@ function drawBearOff(){
   if(G.off.black){ctx.fillStyle='rgba(212,175,55,0.55)';ctx.fillText(G.off.black,cx,TOP+G.off.black*5+18);}
 }
 
+const PIP={
+  1:[[.5,.5]],2:[[.28,.28],[.72,.72]],3:[[.28,.28],[.5,.5],[.72,.72]],
+  4:[[.28,.28],[.72,.28],[.28,.72],[.72,.72]],
+  5:[[.28,.28],[.72,.28],[.5,.5],[.28,.72],[.72,.72]],
+  6:[[.28,.22],[.72,.22],[.28,.5],[.72,.5],[.28,.78],[.72,.78]],
+};
+function rr(x,y,w,h,r){
+  ctx.beginPath();
+  ctx.moveTo(x+r,y);ctx.lineTo(x+w-r,y);ctx.arcTo(x+w,y,x+w,y+r,r);
+  ctx.lineTo(x+w,y+h-r);ctx.arcTo(x+w,y+h,x+w-r,y+h,r);
+  ctx.lineTo(x+r,y+h);ctx.arcTo(x,y+h,x,y+h-r,r);
+  ctx.lineTo(x,y+r);ctx.arcTo(x,y,x+r,y,r);ctx.closePath();
+}
+
 function drawDice(){
   if(!G.dice.length) return;
   const sz=34,gap=8,n=G.dice.length;
   const sx=CW/2-(n*(sz+gap)-gap)/2;
   const used=n-G.movesLeft.length;
   const w=G.player==='white';
-  const PIP={
-    1:[[.5,.5]],2:[[.28,.28],[.72,.72]],3:[[.28,.28],[.5,.5],[.72,.72]],
-    4:[[.28,.28],[.72,.28],[.28,.72],[.72,.72]],
-    5:[[.28,.28],[.72,.28],[.5,.5],[.28,.72],[.72,.72]],
-    6:[[.28,.22],[.72,.22],[.28,.5],[.72,.5],[.28,.78],[.72,.78]],
-  };
   for(let i=0;i<n;i++){
     const isUsed=i<used;
     const dx=sx+i*(sz+gap);
-    ctx.beginPath();
     rr(dx,DICE_Y,sz,sz,5);
     ctx.fillStyle=isUsed?'#181006':(w?'#f0ece0':'#18100a');
     ctx.fill();
-    ctx.strokeStyle=isUsed?'#2a1a06':C.gold;
-    ctx.lineWidth=isUsed?0.8:1.5;ctx.stroke();
-    ctx.fillStyle=isUsed?'#2a2010':(w?'#18100a':C.gold);
+    ctx.strokeStyle=isUsed?'#2a1a06':COL.gold;
+    ctx.lineWidth=isUsed?0.8:1.5; ctx.stroke();
+    ctx.fillStyle=isUsed?'#2a2010':(w?'#18100a':COL.gold);
     for(const[px,py] of PIP[G.dice[i]]){
       ctx.beginPath();ctx.arc(dx+px*sz,DICE_Y+py*sz,2.8,0,Math.PI*2);ctx.fill();
     }
   }
 }
 
-function rr(x,y,w,h,r){
-  ctx.beginPath();
-  ctx.moveTo(x+r,y);ctx.lineTo(x+w-r,y);ctx.arcTo(x+w,y,x+w,y+r,r);
-  ctx.lineTo(x+w,y+h-r);ctx.arcTo(x+w,y+h,x+w-r,y+h,r);
-  ctx.lineTo(x+r,y+h);ctx.arcTo(x,y+h,x,y+h-r,r);
-  ctx.lineTo(x,y+r);ctx.arcTo(x,y,x+r,y,r);
-  ctx.closePath();
-}
-
+// ── Helpers ────────────────────────────────────────────────────────
 function msg(s){document.getElementById('status').textContent=s;}
 function cap(s){return s[0].toUpperCase()+s.slice(1);}
 function syncBtns(){
+  const inMove=G.phase==='move'||G.phase==='nomoves';
   document.getElementById('rollBtn').disabled=G.phase!=='roll';
-  document.getElementById('passBtn').disabled=G.phase!=='move'&&G.phase!=='over';
+  document.getElementById('undoBtn').disabled=!SNAP||G.phase==='won';
+  document.getElementById('passBtn').disabled=!inMove;
 }
 </script>
 </body>
