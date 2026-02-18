@@ -1127,6 +1127,13 @@ function drawDice(){
 function msg(s){document.getElementById('status').textContent=s;}
 function cap(s){return s[0].toUpperCase()+s.slice(1);}
 function syncBtns(){
+  if(!G){
+    document.getElementById('rollBtn').disabled=true;
+    document.getElementById('undoBtn').disabled=true;
+    document.getElementById('passBtn').disabled=true;
+    document.getElementById('doubleBtn').disabled=true;
+    return;
+  }
   const isAITurn = AI.enabled && G.player === AI.color;
   const inMove=G.phase==='move'||G.phase==='nomoves';
 
